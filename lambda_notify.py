@@ -5,6 +5,7 @@ import urllib2
 import slack
 import boto3
 import re
+import os
 from itertools import groupby
 
 # Mapping CloudFormation status codes to colors for Slack message attachments
@@ -36,10 +37,7 @@ DESCRIBE_STACK_STATUS = [
 
 # List of properties from ths SNS message that will be included in a Slack message
 SNS_PROPERTIES_FOR_SLACK = [
-    'Timestamp',
-    'StackName',
 ]
-
 
 def lambda_handler(event, context):
     message = event['Records'][0]['Sns']
@@ -48,6 +46,9 @@ def lambda_handler(event, context):
 
     # ignore messages that do not pertain to the Stack as a whole
     if not cf_message['ResourceType'] == 'AWS::CloudFormation::Stack':
+        return
+
+    if cf_message['StackName'] != cf_message['LogicalResourceId'] and STATUS_COLORS.get(cf_message['ResourceStatus'], '') == 'good':
         return
 
     message = get_stack_update_message(cf_message)
@@ -69,8 +70,8 @@ def get_stack_update_message(cf_message):
     message = {
         'icon_emoji': ':cloud:',
         'username': 'cf-bot',
-        'text': 'Stack: {stack} has entered status: {status} <{link}|(view in web console)>'.format(
-                stack=cf_message['StackName'], status=cf_message['ResourceStatus'], link=stack_url),
+        'text': 'Stack: {stack}/{logicalResourceId} ({region}) has entered status: {status}'.format(
+                stack=cf_message['StackName'], logicalResourceId=cf_message['LogicalResourceId'], region=os.getenv("AWS_DEFAULT_REGION"), status=cf_message['ResourceStatus']),
         'attachments': attachments
     }
 
@@ -92,8 +93,9 @@ def get_channel(stack_name):
 
 
 def get_stack_update_attachment(cf_message):
-    title = 'Stack {stack} is now status {status}'.format(
+    title = 'Stack {stack}/{logicalResourceId} is now status {status}'.format(
         stack=cf_message['StackName'],
+        logicalResourceId=cf_message['LogicalResourceId'],
         status=cf_message['ResourceStatus'])
 
     return {
